@@ -6,6 +6,7 @@ from datetime import datetime
 import scratchattach as scratch3
 import threading                                            # 👈 追加しました
 from http.server import HTTPServer, BaseHTTPRequestHandler  # 👈 追加しました
+from dotenv import load_dotenv                      # 👈 💡これが漏れていました！
 
 # === RenderのPORT（窓口）を維持するためのダミーWEBサーバー ===
 class DummyServerHandler(BaseHTTPRequestHandler):
