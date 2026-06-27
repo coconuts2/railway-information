@@ -4,7 +4,25 @@ from bs4 import BeautifulSoup
 import time
 from datetime import datetime
 import scratchattach as scratch3
-from dotenv import load_dotenv
+import threading                                            # 👈 追加しました
+from http.server import HTTPServer, BaseHTTPRequestHandler  # 👈 追加しました
+
+# === RenderのPORT（窓口）を維持するためのダミーWEBサーバー ===
+class DummyServerHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write("運行情報常駐監視システム稼働中".encode("utf-8"))
+
+    def log_message(self, format, *args):
+        pass # Renderのログがアクセス通知で埋まるのを防ぐため、ログを非表示にします
+
+def run_dummy_server(port):
+    server_address = ("", port)
+    httpd = HTTPServer(server_address, DummyServerHandler)
+    httpd.serve_forever()
+# ==========================================================
 
 load_dotenv()
 
@@ -171,18 +189,18 @@ def scrape_and_sync_push(connection):
 
 if __name__ == "__main__":
     print("🚀 Scratch運行情報管理システムを起動しました。")
-    print(f"📡 ターゲットユーザー: {USERNAME} / プロジェクトID: {PROJECT_ID}")
-
-    # 👇 これがRenderの窓口（ポート）を開くための一番重要な処理です
+    print(f"📡 ターゲットユーザー: coconuts2 / プロジェクトID: 1255095158")
+    
+    # 先にRender用のポート窓口を開放する（最重要）
     port = int(os.environ.get("PORT", 10000))
     web_thread = threading.Thread(target=run_dummy_server, args=(port,), daemon=True)
     web_thread.start()
     print(f"📡 Render用ダミーWeb待ち受けを開始しました (Port: {port})")
-    
-    # 接続の初期化
+
+    # Scratch接続と常駐メインループ（PCで成功していた元の記述）
     session = scratch3.Session(SESSION_ID, username=USERNAME)
     connection = session.connect_cloud(project_id=PROJECT_ID)
-    
+       
     # 定期実行の間隔（10分 = 600秒）
     INTERVAL = 600
     last_run_time = 0
