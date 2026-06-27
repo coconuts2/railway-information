@@ -170,6 +170,12 @@ def scrape_and_sync_push(connection):
 if __name__ == "__main__":
     print("🚀 Scratch運行情報管理システムを起動しました。")
     print(f"📡 ターゲットユーザー: {USERNAME} / プロジェクトID: {PROJECT_ID}")
+
+    # 👇 これがRenderの窓口（ポート）を開くための一番重要な処理です
+    port = int(os.environ.get("PORT", 10000))
+    web_thread = threading.Thread(target=run_dummy_server, args=(port,), daemon=True)
+    web_thread.start()
+    print(f"📡 Render用ダミーWeb待ち受けを開始しました (Port: {port})")
     
     # 接続の初期化
     session = scratch3.Session(SESSION_ID, username=USERNAME)
