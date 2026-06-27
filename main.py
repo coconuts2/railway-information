@@ -172,7 +172,7 @@ if __name__ == "__main__":
     print(f"📡 ターゲットユーザー: {USERNAME} / プロジェクトID: {PROJECT_ID}")
     
     # 接続の初期化
-    session = scratch3.Session(session=SESSION_ID, username=USERNAME)
+    session = scratch3.Session(SESSION_ID, username=USERNAME)
     connection = session.connect_cloud(project_id=PROJECT_ID)
     
     # 定期実行の間隔（10分 = 600秒）
