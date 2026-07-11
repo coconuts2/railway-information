@@ -20,7 +20,6 @@ print("--- 🔍 環境変数 読み込み診断 ---")
 print(f"SCRATCH_USERNAME: {USERNAME}")
 print(f"SCRATCH_PROJECT_ID: {PROJECT_ID}")
 if SESSION_ID:
-    # セッションIDは長いので、文字数と最初の2文字だけ表示して防犯しつつ確認
     print(f"SCRATCH_SESSION_ID: 正常に読み込めました（{len(SESSION_ID)}文字 / 先頭: {SESSION_ID[:2]}...）")
 else:
     print("❌ SCRATCH_SESSION_ID: 読み込めませんでした（空っぽです）")
@@ -32,7 +31,7 @@ if not SESSION_ID:
     
 if not all([SESSION_ID, USERNAME, PROJECT_ID]):
     print("❌ エラー: .env ファイルに必要な設定が見つかりません。")
-    exit(1)
+    sys.exit(1)
 else:
     PROJECT_ID = int(PROJECT_ID)
 
@@ -152,7 +151,7 @@ def scrape_and_sync_push(connection):
                 send_queue.append((rosen_name, chunk_data, continue_flag, f"{c_idx+1}/{num_chunks}"))
             
         total_steps = len(send_queue)
-        print(f"✅ スクレイピング完了。全 {total_steps} 個のデータを送信します。")
+        print(f"✅ スクレイピング完了。全 {total_steps} 個 of データを送信します。")
         
         for index, (name, data, cont_flag, chunk_info) in enumerate(send_queue, start=1):
             print(f"  🔄 [{index}/{total_steps}] 送信中: {name} ({chunk_info})")
@@ -165,8 +164,9 @@ def scrape_and_sync_push(connection):
             start_wait = time.time()
             while True:
                 try:
-                    current_flag = scratch3.get_var(PROJECT_ID, CLOUD_VAR_FLAG)
-                    if current_flag == "0" or current_flag == 0:
+                    # 💡 最新バージョンの仕様に修正
+                    current_flag = scratch3.get_var(str(PROJECT_ID), CLOUD_VAR_FLAG)
+                    if str(current_flag) == "0":
                         break
                 except Exception:
                     pass 
@@ -186,24 +186,20 @@ def scrape_and_sync_push(connection):
         return False  
 
 # ==========================================
-# 🏎️ メイン監視ループ（認証の確実性を高めた接続版）
+# 🏎️ メイン監視ループ（1.X系完全対応・安定板）
 # ==========================================
 if __name__ == "__main__":
     print("🚀 Scratch運行情報同期システム（シンプル安全版）を起動しました。")
     print(f"📡 対象プロジェクト ID: {PROJECT_ID}")
     
-    # 💡 scratchattachの最も確実なセッション接続手順
     try:
-        # 1. まず直接セッションオブジェクトを生成
-        session = scratch3.Session(SESSION_ID, username=USERNAME)
-        
-        # 2. セッションIDを強制的に内部プロパティへ再セット（古いバージョン対策）
-        session.id = SESSION_ID
-        session._session = session
-        
-        # 3. クラウド接続を確立
-        connection = session.connect_cloud(project_id=PROJECT_ID)
-        print("🟢 Scratch クラウド変数サーバーへの接続に成功しました。")
+        # 💡 【重要】最新の1.X系仕様に則り、CloudConnectionを正しく構築
+        connection = scratch3.CloudConnection(
+            project_id=str(PROJECT_ID),
+            username=USERNAME,
+            session_id=SESSION_ID
+        )
+        print("🟢 Scratch クラウド変数サーバーへのダイレクト接続に成功しました。")
     except Exception as e:
         print(f"❌ クラウド接続の初期化に失敗しました: {e}")
         sys.exit(1)
@@ -218,7 +214,8 @@ if __name__ == "__main__":
             # 🚩 1. 手動起動フラグ（☁ 起動）のチェック
             boot_flag = "0"
             try:
-                boot_flag = str(scratch3.get_var(PROJECT_ID, CLOUD_VAR_BOOT))
+                # 💡 最新バージョンの仕様に修正
+                boot_flag = str(scratch3.get_var(str(PROJECT_ID), CLOUD_VAR_BOOT))
             except Exception:
                 pass
                 
@@ -252,6 +249,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n🛑 Ctrl+C を検知しました。プログラムを安全に完全終了します。")
 
-    # 🛠️ RenderのWeb Service用（無料枠で強制終了させられないためのダミーWEBサーバー）
+    # 🛠️ RenderのWeb Service用ダミーWEBサーバー
     import http.server
     http.server.HTTPServer(('0.0.0.0', int(os.environ.get('PORT', 10000))), http.server.BaseHTTPRequestHandler).serve_forever()
