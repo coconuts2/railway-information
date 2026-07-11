@@ -186,16 +186,15 @@ def scrape_and_sync_push(connection):
         return False  
 
 # ==========================================
-# 🏎️ メイン監視ループ（Render対策・直接接続版）
+# 🏎️ メイン監視ループ（正確なダイレクト接続版）
 # ==========================================
 if __name__ == "__main__":
     print("🚀 Scratch運行情報同期システム（シンプル安全版）を起動しました。")
     print(f"📡 対象プロジェクト ID: {PROJECT_ID}")
     
-    # 💡 Render環境用の安全な接続方法に切り替え
-    # セッションID検証をパスして、直接クラウド変数の通信パイプ（Connection）を開きます
+    # 💡 scratchattachの公式仕様に沿ったダイレクト接続
     try:
-        connection = scratch3.CloudConnection(
+        connection = scratch3.Cloud(
             project_id=str(PROJECT_ID),
             username=USERNAME,
             session_id=SESSION_ID
