@@ -178,7 +178,7 @@ if __name__ == "__main__":
     print("🚀 Scratch運行情報同期システム（シンプル安全版）を起動しました。")
     print(f"📡 対象プロジェクト ID: {PROJECT_ID}")
     
-    session = scratch3.Session(SESSION_ID, username=USERNAME)
+    session = scratch3.Session(SESSION_ID, USERNAME)
     connection = session.connect_cloud(project_id=PROJECT_ID)
     
     print("\n🛡️ リアルタイム監視中... 終了するには Ctrl+C を押してください。")
