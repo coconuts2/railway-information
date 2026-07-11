@@ -1,4 +1,4 @@
+scratchattach>=2.1.19
 requests
 beautifulsoup4
 python-dotenv
-scratchattach>=1.7.2
