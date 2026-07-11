@@ -186,20 +186,24 @@ def scrape_and_sync_push(connection):
         return False  
 
 # ==========================================
-# 🏎️ メイン監視ループ（正確なダイレクト接続版）
+# 🏎️ メイン監視ループ（認証の確実性を高めた接続版）
 # ==========================================
 if __name__ == "__main__":
     print("🚀 Scratch運行情報同期システム（シンプル安全版）を起動しました。")
     print(f"📡 対象プロジェクト ID: {PROJECT_ID}")
     
-    # 💡 scratchattachの公式仕様に沿ったダイレクト接続
+    # 💡 scratchattachの最も確実なセッション接続手順
     try:
-        connection = scratch3.Cloud(
-            project_id=str(PROJECT_ID),
-            username=USERNAME,
-            session_id=SESSION_ID
-        )
-        print("🟢 Scratch クラウド変数サーバーへのダイレクト接続に成功しました。")
+        # 1. まず直接セッションオブジェクトを生成
+        session = scratch3.Session(SESSION_ID, username=USERNAME)
+        
+        # 2. セッションIDを強制的に内部プロパティへ再セット（古いバージョン対策）
+        session.id = SESSION_ID
+        session._session = session
+        
+        # 3. クラウド接続を確立
+        connection = session.connect_cloud(project_id=PROJECT_ID)
+        print("🟢 Scratch クラウド変数サーバーへの接続に成功しました。")
     except Exception as e:
         print(f"❌ クラウド接続の初期化に失敗しました: {e}")
         sys.exit(1)
