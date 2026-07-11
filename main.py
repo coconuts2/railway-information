@@ -186,15 +186,25 @@ def scrape_and_sync_push(connection):
         return False  
 
 # ==========================================
-# 🏎️ メイン監視ループ
+# 🏎️ メイン監視ループ（Render対策・直接接続版）
 # ==========================================
 if __name__ == "__main__":
     print("🚀 Scratch運行情報同期システム（シンプル安全版）を起動しました。")
     print(f"📡 対象プロジェクト ID: {PROJECT_ID}")
     
-    session = scratch3.Session(SESSION_ID, USERNAME)
-    connection = session.connect_cloud(project_id=PROJECT_ID)
-    
+    # 💡 Render環境用の安全な接続方法に切り替え
+    # セッションID検証をパスして、直接クラウド変数の通信パイプ（Connection）を開きます
+    try:
+        connection = scratch3.CloudConnection(
+            project_id=str(PROJECT_ID),
+            username=USERNAME,
+            session_id=SESSION_ID
+        )
+        print("🟢 Scratch クラウド変数サーバーへのダイレクト接続に成功しました。")
+    except Exception as e:
+        print(f"❌ クラウド接続の初期化に失敗しました: {e}")
+        sys.exit(1)
+        
     print("\n🛡️ リアルタイム監視中... 終了するには Ctrl+C を押してください。")
     sys.stdout.flush()
 
@@ -211,18 +221,15 @@ if __name__ == "__main__":
                 
             if boot_flag == "1":
                 print(f"\n🔔 手動起動シグナルを検知しました。処理を開始します。")
-                
-                # 起動フラグを即座に「0」に戻し、送信中であることを示す
                 try:
                     connection.set_var(CLOUD_VAR_BOOT, "0")
                 except Exception:
                     pass
                 
-                # 送信処理を実行（この処理が動いている間、whileループは止まるため連打は100%無視されます）
                 success = scrape_and_sync_push(connection)
                 
                 if success:
-                    last_success_time = time.time()  # 10分自動更新タイマーをリセット
+                    last_success_time = time.time()
                     print("⏱️ 送信成功に伴い、10分自動更新タイマーをリセットしました。")
                 else:
                     print("⚠️ 送信失敗。")
@@ -236,12 +243,12 @@ if __name__ == "__main__":
                     last_success_time = current_time
                 sys.stdout.flush()
 
-            # 1秒間スリープ（ここがOSへの優しさとなり、Ctrl+C を確実に通します）
+            # 1秒間スリープ
             time.sleep(1)
 
     except KeyboardInterrupt:
         print("\n🛑 Ctrl+C を検知しました。プログラムを安全に完全終了します。")
 
-    # 🛠️ RenderのWeb Service用に追加（無料枠で強制終了させられないためのダミーWEBサーバー）
+    # 🛠️ RenderのWeb Service用（無料枠で強制終了させられないためのダミーWEBサーバー）
     import http.server
     http.server.HTTPServer(('0.0.0.0', int(os.environ.get('PORT', 10000))), http.server.BaseHTTPRequestHandler).serve_forever()
