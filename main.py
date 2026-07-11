@@ -227,3 +227,7 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\n🛑 Ctrl+C を検知しました。プログラムを安全に完全終了します。")
+
+    # 🛠️ RenderのWeb Service用に追加（無料枠で強制終了させられないためのダミーWEBサーバー）
+    import http.server
+    http.server.HTTPServer(('0.0.0.0', int(os.environ.get('PORT', 10000))), http.server.BaseHTTPRequestHandler).serve_forever()
