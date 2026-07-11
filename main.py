@@ -10,16 +10,25 @@ import sys
 load_dotenv()
 
 # ==========================================
-# 🔒 セキュリティ・環境変数管理（Render直結版）
+# 🔒 セキュリティ・環境変数管理（診断機能付き）
 # ==========================================
-# load_dotenv() は使わず、OSの環境変数を直接最優先で読み込む
-SESSION_ID = os.environ.get("SCRATCH_SESSION_ID")
-USERNAME = os.environ.get("SCRATCH_USERNAME")
-PROJECT_ID = os.environ.get("SCRATCH_PROJECT_ID")
+SESSION_ID = os.environ.get("SCRATCH_SESSION_ID") or os.getenv("SCRATCH_SESSION_ID")
+USERNAME = os.environ.get("SCRATCH_USERNAME") or os.getenv("SCRATCH_USERNAME")
+PROJECT_ID = os.environ.get("SCRATCH_PROJECT_ID") or os.getenv("SCRATCH_PROJECT_ID")
+
+print("--- 🔍 環境変数 読み込み診断 ---")
+print(f"SCRATCH_USERNAME: {USERNAME}")
+print(f"SCRATCH_PROJECT_ID: {PROJECT_ID}")
+if SESSION_ID:
+    # セッションIDは長いので、文字数と最初の2文字だけ表示して防犯しつつ確認
+    print(f"SCRATCH_SESSION_ID: 正常に読み込めました（{len(SESSION_ID)}文字 / 先頭: {SESSION_ID[:2]}...）")
+else:
+    print("❌ SCRATCH_SESSION_ID: 読み込めませんでした（空っぽです）")
+print("--------------------------------")
 
 if not SESSION_ID:
-    print("❌ エラー: SCRATCH_SESSION_ID が空っぽです。Renderの設定を確認してください。")
-    exit(1)
+    print("❌ システム停止: セッションIDが設定されるまで起動を中止します。")
+    sys.exit(1)
     
 if not all([SESSION_ID, USERNAME, PROJECT_ID]):
     print("❌ エラー: .env ファイルに必要な設定が見つかりません。")
