@@ -1,21 +1,19 @@
 """
 Scratch 運行情報同期システム（JR東日本 東北エリア → Scratch クラウド変数）
 
-対象環境: Render Web Service / scratchattach 2.x
+対象環境: Oracle Cloud Infrastructure (Ubuntu VM) / scratchattach 2.x
 
-【この版で対処した既知の問題】
-1. scratchattach v2 には CloudConnection / Cloud クラスが存在しない
+【この版で対処済みの既知の問題】
+1. scratchattach v2 に CloudConnection クラスは無い
    → sa.login_by_id() → session.connect_cloud() が正解
-2. Render Web Service はポートを bind しないとデプロイが落ちる
-   → ヘルスサーバをメインループより前に、別スレッドで起動する
-3. Render 無料プランは「インバウンドHTTPが15分間無い」とスピンダウンする
-   （CPUが動いていても関係なく落とされ、転送が途中でブツ切れになる）
-   → 自己 ping スレッドを用意。ただし外部監視(UptimeRobot 等)の併用を強く推奨
-4. ScratchCloud.get_var() は ☁ プレフィックスのキー不整合により
+2. ScratchCloud.get_var() は ☁ プレフィックスのキー不整合により
    リアルタイム更新を拾えない（ログAPIのスナップショットを返し続ける）
    → get_var は一切使わず、cloud.events() で自前に状態を保持する
-5. cloud.reconnect() / disconnect() はイベントリスナーの websocket も閉じてしまう
+3. cloud.reconnect() / disconnect() はイベントリスナーの websocket も閉じてしまう
    → 送信側の復旧には cloud.connect() のみを使う
+4. スクレイピングの403対策（Session + Referer + クールダウン + 診断ログ）
+
+※ Render用のヘルスサーバ・自己pingは、OCIでは不要なため削除済み
 """
 
 import os
@@ -23,8 +21,6 @@ import sys
 import time
 import threading
 import warnings
-import http.server
-import urllib.request
 from datetime import datetime
 
 import requests
@@ -56,10 +52,13 @@ CLOUD_VAR_UPDATE = "最終更新"
 CLOUD_VAR_BOOT = "起動"
 
 URL = "https://traininfo.jreast.co.jp/train_info/tohoku.aspx"
+INDEX_URL = "https://traininfo.jreast.co.jp/train_info/service.aspx"
+
 CHUNK_SIZE = 256              # Scratch のクラウド変数長上限
 INTERVAL = 600                # 定期更新の間隔（秒）
 ACK_TIMEOUT = 5.0             # Scratch が「現在送信中か」を 0 に戻すのを待つ上限
 MAX_CONSECUTIVE_TIMEOUTS = 3  # 連続タイムアウトでその回の送信を打ち切る
+MIN_SCRAPE_INTERVAL = 60      # 連続アクセス防止（BAN対策の保険）
 
 DEBUG_EVENTS = os.environ.get("DEBUG_CLOUD_EVENTS") == "1"
 
@@ -68,49 +67,6 @@ if not all([SESSION_ID, USERNAME, PROJECT_ID]):
     sys.exit(1)
 
 PROJECT_ID = str(int(PROJECT_ID))  # 数値であることの検証も兼ねる
-
-
-# ==========================================================
-# 🌐 Render 用ヘルスサーバ（必ずメインループより前に、別スレッドで）
-# ==========================================================
-class HealthHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"OK: scratch sync running")
-
-    def log_message(self, *args):
-        pass  # アクセスログを抑制
-
-
-def start_health_server():
-    port = int(os.environ.get("PORT", 10000))
-    http.server.HTTPServer(("0.0.0.0", port), HealthHandler).serve_forever()
-
-
-# ==========================================================
-# ⏰ スピンダウン対策の自己 ping
-#    Render は RENDER_EXTERNAL_URL を自動で入れてくれる。
-#    ※ 一度眠ってしまうと自己 ping では起こせない。
-#      UptimeRobot / cron-job.org からの外部監視を必ず併用すること。
-# ==========================================================
-def start_keepalive():
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not external_url:
-        log("ℹ️ RENDER_EXTERNAL_URL が無いため自己 ping は無効です。")
-        return
-
-    def loop():
-        while True:
-            time.sleep(600)  # 10分おき（スピンダウンは15分無通信で発動）
-            try:
-                urllib.request.urlopen(external_url, timeout=20).read()
-            except Exception as e:
-                log(f"⚠️ keepalive ping 失敗: {e}")
-
-    threading.Thread(target=loop, daemon=True).start()
-    log(f"⏰ 自己 ping を有効化しました（{external_url}）")
 
 
 # ==========================================================
@@ -137,7 +93,7 @@ def setup_cloud():
     cloud = session.connect_cloud(PROJECT_ID)
     log("🟢 Scratch クラウド変数サーバーへの接続に成功しました。")
 
-    # --- 初期値をクラウドログから拾う（use_logs=True は recorder を作らないので安全）---
+    # 初期値をクラウドログから拾う（use_logs=True は recorder を作らないので events() と競合しない）
     try:
         seed = cloud.get_all_vars(use_logs=True)  # キーは "☁ 起動" 形式で返る
         if seed:
@@ -150,7 +106,7 @@ def setup_cloud():
     except Exception as e:
         log(f"⚠️ クラウドログの取得に失敗: {e}")
 
-    # --- websocket でリアルタイム監視 ---
+    # websocket でリアルタイム監視
     events = cloud.events()
 
     @events.event
@@ -236,19 +192,54 @@ def get_formatted_now():
 
 
 # ==========================================================
-# 🗺️ スクレイピング
+# 🗺️ スクレイピング（403対策込み）
 # ==========================================================
+_last_scrape = 0.0
+
+_http = requests.Session()
+_http.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+})
+
+
+def fetch_page():
+    """トップページを経由してから取得（Cookie と Referer を自然に付ける）"""
+    try:
+        _http.get(INDEX_URL, timeout=15)   # セッション Cookie を取得
+    except Exception:
+        pass
+
+    r = _http.get(URL, headers={"Referer": INDEX_URL}, timeout=15)
+
+    if r.status_code == 403:
+        log("🚫 403 Forbidden。切り分け用の情報:")
+        for h in ("Server", "X-Iinfo", "CF-RAY", "X-Cache", "Set-Cookie"):
+            if h in r.headers:
+                log(f"   {h}: {r.headers[h]}")
+        log(f"   body[0:300]: {(r.text or '')[:300]!r}")
+
+    r.raise_for_status()
+    r.encoding = "utf-8"
+    return r.text
+
+
 def scrape_lines():
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    response = requests.get(URL, headers=headers, timeout=15)
-    response.raise_for_status()
-    response.encoding = "utf-8"
-    soup = BeautifulSoup(response.text, "html.parser")
+    global _last_scrape
+    if time.time() - _last_scrape < MIN_SCRAPE_INTERVAL:
+        raise RuntimeError("直前にアクセスしたばかりのためスキップ（連続アクセス防止）")
+    _last_scrape = time.time()
+
+    soup = BeautifulSoup(fetch_page(), "html.parser")
 
     grouped = {}
     for item in soup.find_all("li", class_="traininfo-routes__table__item"):
@@ -326,7 +317,7 @@ def scrape_and_sync_push(cloud):
     for index, (name, data, cont_flag, chunk_info) in enumerate(send_queue, start=1):
         log(f"  🔄 [{index}/{total}] {name} ({chunk_info})")
 
-        # ★ 先にクリアしてから、3変数を1フレームで送信（フラグは必ず最後）
+        # 先にクリアしてから、3変数を1フレームで送信（フラグは必ず最後）
         flag_reset.clear()
         ok = safe_set_vars(
             cloud,
@@ -363,10 +354,6 @@ def scrape_and_sync_push(cloud):
 # 🏎️ メイン
 # ==========================================================
 def main():
-    threading.Thread(target=start_health_server, daemon=True).start()
-    log(f"🌐 ヘルスサーバ起動 :{os.environ.get('PORT', 10000)}")
-    start_keepalive()
-
     log(f"🚀 同期システム起動。対象プロジェクト: {PROJECT_ID}")
 
     try:
