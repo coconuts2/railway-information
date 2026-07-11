@@ -10,12 +10,17 @@ import sys
 load_dotenv()
 
 # ==========================================
-# 🔒 セキュリティ・環境変数管理
+# 🔒 セキュリティ・環境変数管理（Render直結版）
 # ==========================================
-SESSION_ID = os.getenv("SCRATCH_SESSION_ID")
-USERNAME = os.getenv("SCRATCH_USERNAME")
-PROJECT_ID = os.getenv("SCRATCH_PROJECT_ID")
+# load_dotenv() は使わず、OSの環境変数を直接最優先で読み込む
+SESSION_ID = os.environ.get("SCRATCH_SESSION_ID")
+USERNAME = os.environ.get("SCRATCH_USERNAME")
+PROJECT_ID = os.environ.get("SCRATCH_PROJECT_ID")
 
+if not SESSION_ID:
+    print("❌ エラー: SCRATCH_SESSION_ID が空っぽです。Renderの設定を確認してください。")
+    exit(1)
+    
 if not all([SESSION_ID, USERNAME, PROJECT_ID]):
     print("❌ エラー: .env ファイルに必要な設定が見つかりません。")
     exit(1)
